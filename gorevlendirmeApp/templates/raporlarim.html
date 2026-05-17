@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Raporlar</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+    h2 {
+      color: #333;
+    }
+    #rapor-olustur-btn {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+    #rapor-guncelle-btn {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+    #rapor-olustur-btn:hover {
+      background-color: #0056b3;
+    }
+    #rapor-guncelle-btn:hover {
+      background-color: #0056b3;
+    }
+    .rapor-karti {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .rapor-karti h3 {
+      margin: 0 0 10px 0;
+    }
+    .rapor-karti p {
+      margin: 5px 0;
+    }
+    .alt-baslik {
+      font-weight: bold;
+      margin-top: 10px;
+      color: #555;
+    }
+    .dosya-link {
+      display: block;
+      margin-left: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Rapor Listesi</h2>
+  <button id="rapor-olustur-btn" onclick="window.location.href='/rapor/rapor-olustur'">Rapor Oluştur</button>
+  <button id="rapor-guncelle-btn" onclick="window.location.href='/rapor/rapor-guncelle'">Rapor Güncelle</button>
+
+  <div id="rapor-listesi">
+    <p>Yükleniyor...</p>
+  </div>
+
+  <div id="result" style="color: red; margin-top: 15px;"></div>
+
+  <script>
+    async function fetchRaporlar() {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        document.getElementById("result").innerText = "Lütfen giriş yapınız.";
+        return;
+      }
+
+      const query = `
+        query {
+          raporlar {
+            id
+            baslik
+            aciklama
+            raporOlusturmaTarihi
+            raporDuzenlemeTarihi
+            raporKullanicilar{
+              firstName
+              lastName
+            }
+            raporRevize {
+              id
+              baslik
+              aciklama
+              revizeOlusturmaTarihi
+            }
+            raporOlusturan {
+              firstName
+              lastName
+            }
+            raporDuzenleyen {
+              firstName
+              lastName
+            }
+            raporDosya {
+              id
+              dosya
+            }
+            raporResim {
+              id
+              resim
+            }
+
+          }
+        }
+      `;
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token " + token
+        },
+        body: JSON.stringify({ query })
+      });
+
+      const result = await response.json();
+      const container = document.getElementById("rapor-listesi");
+      container.innerHTML = "";
+
+      if (result.errors) {
+        container.innerHTML = `<p>Hata: ${result.errors[0].message}</p>`;
+        return;
+      }
+
+      const raporlar = result.data.raporlar;
+
+      if (raporlar.length === 0) {
+        container.innerHTML = "<p>Hiç rapor bulunamadı.</p>";
+        return;
+      }
+
+      raporlar.forEach(rapor => {
+        const div = document.createElement("div");
+        div.className = "rapor-karti";
+
+        const kullanicilar = rapor.raporKullanicilar || [];
+        const kullaniciIsimleri = kullanicilar.map(k => `${k.firstName} ${k.lastName}`).join(", ") || "Yok";
+        const revize = rapor.raporRevize;
+        const olusturan = rapor.raporOlusturan;
+        const dosyalar = rapor.raporDosya || [];
+        const resimler = rapor.raporResim || [];
+
+
+        const dosyaHTML = dosyalar.length > 0
+          ? dosyalar.map(d => `<a class="dosya-link" href="${d.dosya}" target="_blank">Dosya #${d.id}</a>`).join("")
+          : "<span style='margin-left:15px;'>Dosya yok</span>";
+
+        const resimdosyaHTML = resimler.length > 0
+        ? resimler.map(r => `<a class="dosya-link" href="${r.resim}" target="_blank">Dosya #${r.id}</a>`).join("")
+        : "<span style='margin-left:15px;'>Dosya yok</span>";
+
+        div.innerHTML = `
+          <h3>${rapor.baslik}</h3>
+          <p><strong>Açıklama:</strong> ${rapor.aciklama}</p>
+          <p><strong>Oluşturma Tarihi:</strong> ${rapor.raporOlusturmaTarihi}</p>
+          <p><strong>Oluşturan:</strong> ${olusturan?.firstName || "?"} ${olusturan?.lastName || "?"}</p>
+          <p><strong>Raporda Bulunan Kullanıcılar:</strong> ${kullaniciIsimleri}</p>
+          <p><strong>Rapor ID:</strong> ${rapor.id}</p>
+          <p><strong>Düzenleme Tarihi:</strong> ${rapor.raporDuzenlemeTarihi || "-"}</p>
+          <p><strong>Düzenleyen:</strong> ${rapor.raporDuzenleyen?.firstName || "?"} ${rapor.raporDuzenleyen?.lastName || "?"}</p>
+
+          <div class="alt-baslik">Revize Bilgisi:</div>
+          <p>&nbsp;&nbsp;- id: ${revize?.id || "-"}</p>
+          <p>&nbsp;&nbsp;- Başlık: ${revize?.baslik || "-"}</p>
+          <p>&nbsp;&nbsp;- Açıklama: ${revize?.aciklama || "-"}</p>
+          <p>&nbsp;&nbsp;- Tarih: ${revize?.revizeOlusturmaTarihi || "-"}</p>
+          <div class="alt-baslik">Dosyalar:</div>
+          
+          ${dosyaHTML}
+        `;
+
+        container.appendChild(div);
+      });
+    }
+
+    fetchRaporlar();
+  </script>
+</body>
+</html>

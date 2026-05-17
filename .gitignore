@@ -1,0 +1,20 @@
+# Python önbellek dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sanal ortam ve kütüphane klasörleri
+venv/
+env/
+ENV/
+Lib/
+Scripts/
+Include/
+
+# Django spesifik dosyalar
+*.log
+local_settings.py
+db.sqlite3
+
+# Çevresel değişkenler (Şifreler vs.)
+.env

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Raporlarım</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+    .rapor-karti {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .rapor-karti h3 {
+      margin: 0 0 10px 0;
+    }
+    .rapor-karti p {
+      margin: 5px 0;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 6px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Raporlarım</h2>
+  <div id="rapor-listesi">
+    <p>Yükleniyor...</p>
+  </div>
+  <div id="sonuc" style="color: green; margin-top: 15px;"></div>
+
+  <script>
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      document.getElementById("rapor-listesi").innerHTML = "<p style='color:red;'>Giriş yapmanız gerekiyor.</p>";
+      throw new Error("Token bulunamadı, giriş yapılmamış.");
+    }
+
+    async function fetchRaporlar() {
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token " + token
+        },
+        body: JSON.stringify({
+          query: `
+            query {
+              raporlar {
+                id
+                baslik
+                aciklama
+                raporOlusturan {
+                  firstName
+                  lastName
+                }
+              }
+            }
+          `
+        })
+      });
+
+      const data = await response.json();
+      const container = document.getElementById("rapor-listesi");
+      container.innerHTML = "";
+
+      if (data.errors) {
+        container.innerHTML = `<p>Hata: ${data.errors[0].message}</p>`;
+        return;
+      }
+
+      const raporlar = data.data.raporlar;
+
+      if (raporlar.length === 0) {
+        container.innerHTML = "<p>Hiç rapor bulunamadı.</p>";
+        return;
+      }
+
+      raporlar.forEach(rapor => {
+        const div = document.createElement("div");
+        div.className = "rapor-karti";
+        div.innerHTML = `
+          <h3>${rapor.baslik}</h3>
+          <p><strong>ID:</strong> ${rapor.id}</p>
+          <p><strong>Açıklama:</strong> ${rapor.aciklama}</p>
+          <p><strong>Oluşturan:</strong> ${rapor.raporOlusturan?.firstName || "?"} ${rapor.raporOlusturan?.lastName || "?"}</p>
+          
+          <label for="baslik-${rapor.id}">Yeni Başlık:</label>
+          <input type="text" id="baslik-${rapor.id}" value="${rapor.baslik}"/>
+
+          <label for="aciklama-${rapor.id}">Yeni Açıklama:</label>
+          <textarea id="aciklama-${rapor.id}">${rapor.aciklama}</textarea>
+
+          <label for="dosyalar-${rapor.id}">Dosya ID'leri (virgülle):</label>
+          <input type="text" id="dosyalar-${rapor.id}" placeholder="Örn: 1,4,7"/>
+
+          <label for="resimler-${rapor.id}">Resim ID'leri (virgülle):</label>
+          <input type="text" id="resimler-${rapor.id}" placeholder="Örn: 3,5"/>
+
+          <button onclick="raporGuncelle(${rapor.id})">Güncelle</button>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    async function raporGuncelle(id) {
+      const baslik = document.getElementById(`baslik-${id}`).value;
+      const aciklama = document.getElementById(`aciklama-${id}`).value;
+      const dosyalarRaw = document.getElementById(`dosyalar-${id}`).value;
+      const resimlerRaw = document.getElementById(`resimler-${id}`).value;
+
+      const baslikSafe = JSON.stringify(baslik);
+      const aciklamaSafe = JSON.stringify(aciklama);
+
+      const dosyaIdList = dosyalarRaw.trim() ? dosyalarRaw.split(",").map(x => parseInt(x.trim())).filter(x => !isNaN(x)) : [];
+      const resimIdList = resimlerRaw.trim() ? resimlerRaw.split(",").map(x => parseInt(x.trim())).filter(x => !isNaN(x)) : [];
+
+      const mutation = `
+        mutation {
+          raporGuncelleme(input: {
+            id: ${id},
+            baslik: ${baslikSafe},
+            aciklama: ${aciklamaSafe}
+            ${dosyaIdList.length > 0 ? `,\n            raporDosyaId: [${dosyaIdList.join(",")}]` : ""}
+            ${resimIdList.length > 0 ? `,\n            raporResimId: [${resimIdList.join(",")}]` : ""}
+          }) {
+            id
+            baslik
+            aciklama
+          }
+        }
+      `;
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token " + token
+        },
+        body: JSON.stringify({ query: mutation })
+      });
+
+      const result = await response.json();
+      const sonuc = document.getElementById("sonuc");
+
+      if (result.errors) {
+        sonuc.style.color = "red";
+        sonuc.innerText = "Hata: " + result.errors[0].message;
+      } else {
+        sonuc.style.color = "green";
+        sonuc.innerText = "Rapor başarıyla güncellendi.";
+        fetchRaporlar();
+      }
+    }
+
+    fetchRaporlar();
+  </script>
+</body>
+</html>

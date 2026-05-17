@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Görevler ve Bildirim Gönder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+    h2 {
+      color: #333;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 0 10px 20px 0;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .gorev-karti {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+    .bildirim {
+      background-color: #d1e7dd;
+      color: #0f5132;
+      border: 1px solid #badbcc;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+    }
+    .hata {
+      background-color: #f8d7da;
+      color: #842029;
+      border: 1px solid #f5c2c7;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+    }
+    #bildirim-formu {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    #bildirim-formu input {
+      padding: 8px;
+      width: 70%;
+      margin-right: 10px;
+    }
+    
+    /* Yeni ve Kalıcı Toast Tasarımı */
+    #ws-toast {
+        display: none;
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background-color: #0d6efd;
+        color: white;
+        padding: 15px 40px 15px 20px; /* Çarpı butonu için sağdan boşluk bırakıldı */
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        z-index: 1000;
+        min-width: 250px;
+    }
+    
+    /* Çarpı Butonu Stili */
+    .toast-kapat {
+        position: absolute;
+        top: 12px;
+        right: 15px;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 20px;
+        line-height: 1;
+    }
+    .toast-kapat:hover {
+        color: #ffcccc;
+    }
+  </style>
+</head>
+<body>
+  <h2>Görev Listesi ve Bildirimler</h2>
+  <button id="gorev-ekle-btn" style="display:none" onclick="window.location.href='/gorev/gorevolustur'">Görev Ekle</button>
+  <button onclick="window.location.href='/revize/revizelerim'">Revizelerim</button>
+  <button onclick="window.location.href='/rapor/raporlarim'">Raporlarım</button>
+
+  <div id="bildirim-alani"></div>
+  
+  <!-- WebSockets üzerinden gelen anlık bildirimler için alan -->
+  <div id="ws-toast">
+      <span id="ws-toast-mesaj"></span>
+      <span class="toast-kapat" onclick="document.getElementById('ws-toast').style.display='none'">&times;</span>
+  </div>
+
+  <!-- Bildirim Gönderme Formu -->
+  <div id="bildirim-formu" style="display:none">
+    <h3>Sistem Bildirimi Gönder</h3>
+    <input type="text" id="mesaj-input" placeholder="Bildirim mesajını yazın..." />
+    <button onclick="sendBildirim()">Gönder</button>
+  </div>
+
+  <!-- Görev listesi -->
+  <div id="gorev-listesi">
+    <p>Yükleniyor...</p>
+  </div>
+
+  <script>
+    function duzgunGorevDurumuGoster(durum) {
+      const durumSozluk = {
+        'gorevAtandi': 'Görev Atandı',
+        'gorevIptal': 'Görev İptal',
+        'gorevOnayBekleniyor': 'Görev Onay Bekleniyor',
+        'gorevOnaylandi': 'Görev Onaylandı',
+      };
+      return durumSozluk[durum] || durum;
+    }
+
+    const token = localStorage.getItem("token");
+    const userType = localStorage.getItem("userType");
+
+    if (userType === "yönetici") {
+      document.getElementById("gorev-ekle-btn").style.display = "inline-block";
+      document.getElementById("bildirim-formu").style.display = "block";
+    }
+
+    // Tarayıcıdan masaüstü bildirim izni iste (Eğer henüz verilmediyse)
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+
+    // GÖREVLERİ FETCH EDEN FONKSİYON
+    async function fetchGorevler() {
+      const headers = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Token ${token}`;
+      }
+
+      const query = `
+        query {
+          gorevler {
+            id
+            baslik
+            aciklama
+            gorevOlusturmaTarihi
+            gorevDurumu
+            gorevliler {
+              firstName
+              lastName
+            }
+            gorevOlusturan {
+              firstName
+              lastName
+            }
+          }
+        }
+      `;
+
+      try {
+        const response = await fetch("/graphql/", {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify({ query }),
+        });
+
+        const result = await response.json();
+        const container = document.getElementById("gorev-listesi");
+        container.innerHTML = "";
+
+        if (result.errors) {
+          container.innerHTML = `<p>Hata: ${result.errors[0].message}</p>`;
+          return;
+        }
+
+        const gorevler = result.data.gorevler;
+        if (gorevler.length === 0) {
+          container.innerHTML = "<p>Hiç görev bulunamadı.</p>";
+          return;
+        }
+
+        gorevler.forEach(gorev => {
+          const div = document.createElement("div");
+          div.className = "gorev-karti";
+
+          const gorevliIsimleri = (gorev.gorevliler || [])
+            .map(g => `${g.firstName} ${g.lastName}`).join(", ") || "-";
+
+          const olusturan = gorev.gorevOlusturan
+            ? `${gorev.gorevOlusturan.firstName} ${gorev.gorevOlusturan.lastName}` : "Bilinmiyor";
+
+          div.innerHTML = `
+            <h3>${gorev.baslik}</h3>
+            <p><strong>Açıklama:</strong> ${gorev.aciklama}</p>
+            <p><strong>Durum:</strong> ${duzgunGorevDurumuGoster(gorev.gorevDurumu)}</p>
+            <p><strong>Oluşturma Tarihi:</strong> ${gorev.gorevOlusturmaTarihi}</p>
+            <p><strong>Görevliler:</strong> ${gorevliIsimleri}</p>
+            <p><strong>Oluşturan:</strong> ${olusturan}</p>
+          `;
+
+          container.appendChild(div);
+        });
+      } catch (error) {
+        console.error("Görevler çekilirken hata oluştu:", error);
+      }
+    }
+
+    // WEBSOCKET BAĞLANTISINI KURAN FONKSİYON
+    function initWebSocket() {
+      // Eğer kullanıcı giriş yapmamışsa WebSocket'i başlatma
+      if (!token) return;
+
+      // Protokol belirleme (HTTPS ise wss://, HTTP ise ws://)
+      const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+      
+      // Token'ı URL üzerinden Query Parametre olarak gönderiyoruz
+      const wsUrl = `${protocol}${window.location.host}/ws/notifications/?token=${token}`;
+      
+      const notificationSocket = new WebSocket(wsUrl);
+
+      notificationSocket.onopen = function(e) {
+        console.log("WebSocket bağlantısı başarılı. Gerçek zamanlı bildirimler dinleniyor...");
+      };
+
+      notificationSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        
+        // Backend'den type: 'new_task' geldiyse
+        if(data.type === 'new_task') {
+            // 1. Ekranda kalıcı pop-up (Toast) göster
+            const toast = document.getElementById("ws-toast");
+            const toastMesaj = document.getElementById("ws-toast-mesaj");
+            
+            toastMesaj.innerText = data.message;
+            toast.style.display = "block";
+            
+            // 2. Alt-tab durumları için Masaüstü Tarayıcı Bildirimi gönder
+            if (Notification.permission === "granted") {
+                // Sayfa görünür değilse veya kullanıcı başka sekmedeyse masaüstü bildirimi atar
+                new Notification("Yeni Görev Atandı!", {
+                    body: data.message,
+                    icon: "https://cdn-icons-png.flaticon.com/512/815/815234.png" // Kendi logonuzu koyabilirsiniz
+                });
+            }
+            
+            // Sayfayı yenilemeden (refresh yapmadan) güncel verileri tekrar çek!
+            fetchGorevler();
+        }
+      };
+
+      notificationSocket.onerror = function(e) {
+        console.error("WebSocket bir hatayla karşılaştı.");
+      };
+
+      notificationSocket.onclose = function(e) {
+        console.log("WebSocket bağlantısı koptu. 5 saniye içinde tekrar deneniyor...");
+        // Bağlantı koparsa otomatik yeniden bağlanma mantığı
+        setTimeout(initWebSocket, 5000);
+      };
+    }
+
+    // MANUEL BİLDİRİM GÖNDERME FONKSİYONU
+    async function sendBildirim() {
+      const mesaj = document.getElementById("mesaj-input").value.trim();
+      if (!mesaj) {
+        alert("Lütfen bir mesaj yazın");
+        return;
+      }
+
+      const headers = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Token ${token}`;
+      }
+
+      const mutation = `
+        mutation {
+          testBildirimi(message: "${mesaj}")
+        }
+      `;
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({ query: mutation }),
+      });
+
+      const result = await response.json();
+      const bildirimAlani = document.getElementById("bildirim-alani");
+
+      bildirimAlani.innerHTML = "";
+      if (result.data && result.data.testBildirimi) {
+        bildirimAlani.innerHTML = `<div class="bildirim">Bildirim başarıyla gönderildi.</div>`;
+        document.getElementById("mesaj-input").value = "";
+      } else {
+        const hataMesaji = result.errors ? result.errors[0].message : "Bilinmeyen hata";
+        bildirimAlani.innerHTML = `<div class="hata">Hata: ${hataMesaji}</div>`;
+      }
+    }
+
+    // Sayfa açıldığında hem görevleri çek hem de WebSocket'i dinlemeye başla
+    fetchGorevler();
+    initWebSocket();
+  </script>
+</body>
+</html>

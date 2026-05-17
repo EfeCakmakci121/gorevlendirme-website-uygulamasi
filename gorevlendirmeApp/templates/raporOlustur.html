@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rapor Oluştur</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+    h2 {
+      color: #333;
+    }
+    form {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      max-width: 500px;
+    }
+    label {
+      display: block;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    input[type="text"],
+    input[type="number"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #result {
+      margin-top: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <h2>Yeni Rapor Oluştur</h2>
+
+  <form id="rapor-form">
+    <label>Başlık:
+      <input type="text" name="baslik" required />
+    </label>
+    <label>Açıklama:
+      <textarea name="aciklama" required></textarea>
+    </label>
+    <label>Revize ID:
+      <input type="number" name="raporRevize" required />
+    </label>
+    <label>Dosya ID'leri (virgülle):
+      <input type="text" name="raporDosya" />
+    </label>
+    <label>Resim ID'leri (virgülle):
+      <input type="text" name="raporResim" />
+    </label>
+
+    <!-- ✅ Yeni alan: Rapor Kullanıcıları (email listesi) -->
+    <label>Rapor Kullanıcıları (emailler, virgülle):
+      <input type="text" name="raporKullanicilar" placeholder="ornek@mail.com, diger@mail.com" />
+    </label>
+
+    <button type="submit">Raporu Gönder</button>
+  </form>
+
+  <div id="result"></div>
+
+  <script>
+    document.getElementById("rapor-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        document.getElementById("result").innerText = "Lütfen giriş yapınız.";
+        return;
+      }
+
+      const form = e.target;
+      const baslik = form.baslik.value.trim();
+      const aciklama = form.aciklama.value.trim();
+      const raporRevize = parseInt(form.raporRevize.value);
+      const raporDosya = form.raporDosya.value.split(",").map(x => x.trim()).filter(x => x !== "").map(Number);
+      const raporResim = form.raporResim.value.split(",").map(x => x.trim()).filter(x => x !== "").map(Number);
+      const raporKullanicilar = form.raporKullanicilar.value.split(",").map(x => x.trim()).filter(x => x !== "");
+
+      const mutation = `
+        mutation CreateRapor($input: RaporInput!) {
+          createRapor(input: $input) {
+            id
+            baslik
+            aciklama
+            raporOlusturmaTarihi
+            raporRevize {
+              id
+              baslik
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        input: {
+          baslik: baslik,
+          aciklama: aciklama,
+          raporRevize: raporRevize,
+          raporDosya: raporDosya.length ? raporDosya : null,
+          raporResim: raporResim.length ? raporResim : null,
+          raporKullanicilar: raporKullanicilar.length ? raporKullanicilar : null
+        }
+      };
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Token ${token}`
+        },
+        body: JSON.stringify({ query: mutation, variables })
+      });
+
+      const result = await response.json();
+      const resultDiv = document.getElementById("result");
+
+      if (result.errors) {
+        resultDiv.innerHTML = `<strong>Hata:</strong> ${result.errors[0].message}`;
+      } else {
+        const data = result.data.createRapor;
+        resultDiv.innerHTML = `<strong>Rapor başarıyla oluşturuldu:</strong><br>
+          <strong>ID:</strong> ${data.id}<br>
+          <strong>Başlık:</strong> ${data.baslik}<br>
+          <strong>Açıklama:</strong> ${data.aciklama}<br>
+          <strong>Revize:</strong> ${data.raporRevize.baslik}`;
+        form.reset();
+      }
+    });
+  </script>
+</body>
+</html>

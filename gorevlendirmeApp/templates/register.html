@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Kayıt Ol</title>
+</head>
+<body>
+  <h2>Kullanıcı Kayıt</h2>
+  <form id="register-form">
+    <input type="email" id="email" placeholder="Email" required /><br>
+    <input type="text" id="firstName" placeholder="Ad" required /><br>
+    <input type="text" id="lastName" placeholder="Soyad" required /><br>
+    <input type="password" id="password" placeholder="Şifre" required /><br>
+    <select id="userType">
+      <option value="personel" selected>Personel</option>
+      <option value="admin">Admin</option>
+    </select><br>
+    <button type="submit">Kayıt Ol</button>
+  </form>
+
+  <div id="result"></div>
+
+  <script>
+    document.getElementById("register-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const email = document.getElementById("email").value;
+      const firstName = document.getElementById("firstName").value;
+      const lastName = document.getElementById("lastName").value;
+      const password = document.getElementById("password").value;
+      const userType = document.getElementById("userType").value;
+
+      const query = `
+        mutation {
+          kullaniciRegister(
+            email: "${email}",
+            firstName: "${firstName}",
+            lastName: "${lastName}",
+            password: "${password}",
+            userType: "${userType}"
+          ) {
+            email
+            firstName
+            lastName
+            userType
+          }
+        }
+      `;
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query })
+      });
+
+      const result = await response.json();
+      console.log(result);
+
+      const container = document.getElementById("result");
+
+      if (result.data?.kullaniciRegister) {
+        const user = result.data.kullaniciRegister;
+        container.innerText = `Kayıt başarılı: ${user.firstName} ${user.lastName} (${user.email})`;
+      } else {
+        const hata = result.errors?.[0]?.message || "Kayıt başarısız.";
+        container.innerText = "Hata: " + hata;
+      }
+    });
+  </script>
+</body>
+</html>

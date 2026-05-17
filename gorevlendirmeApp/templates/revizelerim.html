@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Revizelerim</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+    h2 {
+      color: #333;
+    }
+    .revize-karti {
+      background: white;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .revize-karti h3 {
+      margin: 0 0 10px 0;
+    }
+    .revize-karti p {
+      margin: 5px 0;
+    }
+    .kullanicilar {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #555;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 0 10px 20px 0;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    ul.alt-revize-list {
+      margin-left: 20px;
+      padding-left: 15px;
+      border-left: 2px solid #ddd;
+      margin-top: 10px;
+    }
+    ul.alt-revize-list li {
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Revizelerim</h2>
+  <button onclick="window.location.href='/rapor/rapor-olustur'">Rapor Oluştur</button>
+  <button id="alt-revize-btn" style="display:none;" onclick="window.location.href='/revize/revize-guncelleme'">Alt Revize Oluştur</button>
+
+  <div id="revize-listesi">
+    <p>Yükleniyor...</p>
+  </div>
+
+  <div id="result" style="color: red; margin-top: 15px;"></div>
+
+  <script>
+    const userType = localStorage.getItem("userType");
+    if (userType === "yönetici") {
+      document.getElementById("alt-revize-btn").style.display = "inline-block";
+    }
+
+    function duzgunDurumGoster(durum) {
+      const durumSozluk = {
+        'revizeRaporBekleniyor': 'Revize Rapor Bekleniyor',
+        'revizeIptal': 'Revize İptal',
+        'revizeGuncellendi': 'Revize Güncellendi',
+        'revizeOnayBekleniyor': 'Revize Onay Bekleniyor',
+        'revizeOnaylandi': 'Revize Onaylandı',
+      };
+      return durumSozluk[durum] || durum;
+    }
+
+    // En son en derin alt revizeyi bulur
+    function enSonAltRevizeyiBul(revize) {
+      if (!revize.altRevize || revize.altRevize.length === 0) return revize;
+      let son = revize.altRevize[revize.altRevize.length - 1];
+      while (son.altRevize && son.altRevize.length > 0) {
+        son = son.altRevize[son.altRevize.length - 1];
+      }
+      return son;
+    }
+
+    // Butonları gösterme kontrolü
+    function butonGoster(revize, anaRevize) {
+      if (!anaRevize) return false;
+      const sonRevize = enSonAltRevizeyiBul(anaRevize);
+      return revize.id === sonRevize.id && userType === "yönetici";
+    }
+
+    function renderAltRevizeler(revizeler, anaRevize) {
+      if (!revizeler || revizeler.length === 0) return "";
+
+      let html = '<ul class="alt-revize-list">';
+      revizeler.forEach(revize => {
+        const kullanicilar = revize.revizeKullanicilar.map(k => `${k.firstName} ${k.lastName}`).join(", ") || "Yok";
+        html += `<li>
+          <strong>${revize.baslik}</strong> – ${revize.aciklama} (ID: ${revize.id})<br/>
+          <small><strong>Oluşturan:</strong> ${revize.revizeOlusturan?.firstName || "?"} ${revize.revizeOlusturan?.lastName || "?"}</small><br/>
+          <small><strong>Düzenleyen:</strong> ${revize.revizeDuzenleyen?.firstName || "?"} ${revize.revizeDuzenleyen?.lastName || "?"}</small><br/>
+          <small><strong>Düzenleme Tarihi:</strong> ${revize.revizeDuzenlemeTarihi || "-"}</small><br/>
+          <small><strong>Revize Durumu:</strong> ${duzgunDurumGoster(revize.revizeDurumu)}</small><br/>
+          <small><strong>Kullanıcılar:</strong> ${kullanicilar}</small><br/>
+          ${butonGoster(revize, anaRevize) && revize.revizeDurumu === "revizeOnayBekleniyor" ? `<button onclick="revizeOnayla(${revize.id})">Onayla</button>` : ""}
+          ${butonGoster(revize, anaRevize) && revize.revizeDurumu !== "revizeOnaylandi" && revize.revizeDurumu !== "revizeIptal" ? `<button onclick="revizeIptalEt(${revize.id})">İptal Et</button>` : ""}
+          ${renderAltRevizeler(revize.altRevize, anaRevize)}
+        </li>`;
+      });
+      html += '</ul>';
+      return html;
+    }
+
+    // Alt revizelerin tüm id'lerini toplayan fonksiyon
+    function tumAltRevizeIdleriniTopla(revizeler) {
+      let altIdler = new Set();
+
+      function helper(revizeList) {
+        revizeList.forEach(r => {
+          if (r.altRevize && r.altRevize.length > 0) {
+            r.altRevize.forEach(ar => {
+              altIdler.add(ar.id);
+              helper([ar]);
+            });
+          }
+        });
+      }
+
+      helper(revizeler);
+      return altIdler;
+    }
+
+    async function fetchRevizeler() {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        document.getElementById("result").innerText = "Lütfen giriş yapınız.";
+        return;
+      }
+
+      const query = `
+        query {
+          revizeler {
+            id
+            baslik
+            aciklama
+            revizeDurumu
+            revizeOlusturmaTarihi
+            revizeDuzenlemeTarihi
+            revizeOlusturan {
+              firstName
+              lastName
+            }
+            revizeDuzenleyen {
+              firstName
+              lastName
+            }
+            revizeKullanicilar {
+              firstName
+              lastName
+            }
+            altRevize {
+              id
+              baslik
+              aciklama
+              revizeDurumu
+              revizeOlusturmaTarihi
+              revizeDuzenlemeTarihi
+              revizeOlusturan {
+                firstName
+                lastName
+              }
+              revizeDuzenleyen {
+                firstName
+                lastName
+              }
+              revizeKullanicilar {
+                firstName
+                lastName
+              }
+              altRevize {
+                id
+                baslik
+                aciklama
+                revizeDurumu
+                revizeOlusturmaTarihi
+                revizeDuzenlemeTarihi
+                revizeOlusturan {
+                  firstName
+                  lastName
+                }
+                revizeDuzenleyen {
+                  firstName
+                  lastName
+                }
+                revizeKullanicilar {
+                  firstName
+                  lastName
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      try {
+        const response = await fetch("/graphql/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Token " + token
+          },
+          body: JSON.stringify({ query })
+        });
+        const result = await response.json();
+        const container = document.getElementById("revize-listesi");
+        container.innerHTML = "";
+
+        if (result.errors) {
+          container.innerHTML = `<p>Hata: ${result.errors[0].message}</p>`;
+          return;
+        }
+
+        const revizeler = result.data.revizeler;
+
+        if (revizeler.length === 0) {
+          container.innerHTML = "<p>Hiç revize bulunamadı.</p>";
+          return;
+        }
+
+        // Alt revizelerin id'lerini topla
+        const altRevizeIdleri = tumAltRevizeIdleriniTopla(revizeler);
+
+        // Ana listeye sadece alt revize olmayanları koy
+        const anaRevizeler = revizeler.filter(r => !altRevizeIdleri.has(r.id));
+
+        anaRevizeler.forEach(revize => {
+          const kullanicilar = revize.revizeKullanicilar.map(k => `${k.firstName} ${k.lastName}`).join(", ") || "Yok";
+          const altRevizeHtml = renderAltRevizeler(revize.altRevize, revize);
+
+          const div = document.createElement("div");
+          div.className = "revize-karti";
+          div.innerHTML = `
+            <h3>${revize.baslik}</h3>
+            <p><strong>ID:</strong> ${revize.id}</p>
+            <p><strong>Açıklama:</strong> ${revize.aciklama}</p>
+            <p><strong>Oluşturma Tarihi:</strong> ${revize.revizeOlusturmaTarihi}</p>
+            <p><strong>Oluşturan:</strong> ${revize.revizeOlusturan?.firstName || "?"} ${revize.revizeOlusturan?.lastName || "?"}</p>
+            <p><strong>Düzenleyen:</strong> ${revize.revizeDuzenleyen?.firstName || "?"} ${revize.revizeDuzenleyen?.lastName || "?"}</p>
+            <p><strong>Düzenleme Tarihi:</strong> ${revize.revizeDuzenlemeTarihi || "-"}</p>
+            <p><strong>Revize Durumu:</strong> ${duzgunDurumGoster(revize.revizeDurumu)}</p>
+            <p class="kullanicilar"><strong>Kullanıcılar:</strong> ${kullanicilar}</p>
+            ${
+              (!revize.altRevize || revize.altRevize.length === 0) && userType === "yönetici" && revize.revizeDurumu === "revizeOnayBekleniyor" 
+              ? `<button onclick="revizeOnayla(${revize.id})">Onayla</button>` 
+              : ""
+            }
+            ${
+              (!revize.altRevize || revize.altRevize.length === 0) && userType === "yönetici" && revize.revizeDurumu !== "revizeOnaylandi" && revize.revizeDurumu !== "revizeIptal" 
+              ? `<button onclick="revizeIptalEt(${revize.id})">İptal Et</button>` 
+              : ""
+            }
+            ${altRevizeHtml}
+          `;
+          container.appendChild(div);
+        });
+      } catch(e) {
+        document.getElementById("revize-listesi").innerHTML = "<p>Sunucuya bağlanırken hata oluştu.</p>";
+      }
+    }
+
+    async function revizeOnayla(revizeId) {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        alert("Lütfen giriş yapınız.");
+        return;
+      }
+
+      const mutation = `
+        mutation {
+          revizeOnayla(revizeId: ${revizeId})
+        }
+      `;
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token " + token
+        },
+        body: JSON.stringify({ query: mutation })
+      });
+
+      const result = await response.json();
+      if (result.data.revizeOnayla) {
+        alert("Revize başarıyla onaylandı.");
+        fetchRevizeler();
+      } else {
+        alert("Revize onaylanamadı.");
+      }
+    }
+
+    async function revizeIptalEt(revizeId) {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        alert("Lütfen giriş yapınız.");
+        return;
+      }
+
+      const mutation = `
+        mutation {
+          revizeIptal(revizeId: ${revizeId})
+        }
+      `;
+
+      const response = await fetch("/graphql/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token " + token
+        },
+        body: JSON.stringify({ query: mutation })
+      });
+
+      const result = await response.json();
+      if (result.data.revizeIptal) {
+        alert("Revize başarıyla iptal edildi.");
+        fetchRevizeler();
+      } else {
+        alert("Revize iptal edilemedi.");
+      }
+    }
+
+    fetchRevizeler();
+  </script>
+</body>
+</html>

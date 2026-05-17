@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OneSignal Kullanıcı ID Alma</title>
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script>
+    const query = `
+      query {
+        oneSignalApi {
+            oneSignalApiId
+            oneSignalApiKey
+        }
+      }
+    `;
+
+    fetch("/graphql/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    })
+      .then(res => res.json())
+      .then(response => {
+        const apiData = response.data?.oneSignalApi;
+
+        if (!apiData || !apiData.oneSignalApiId) {
+          console.error("OneSignal App ID alınamadı:", response);
+          return;
+        }
+
+        const appId = apiData.oneSignalApiId;
+
+
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.init({appId});
+
+      const permission = await OneSignal.Notifications.permission;
+      console.log("Push izni durumu:", permission);
+      await OneSignal.Notifications.requestPermission();
+
+      async function waitForUserId(maxTries = 10, interval = 1000) {
+        for (let i = 0; i < maxTries; i++) {
+          const userId = OneSignal.User.onesignalId;
+          if (userId) {
+            console.log("OneSignal User ID:", userId);
+            const div = document.createElement("div");
+            div.textContent = "OneSignal User ID: " + userId;
+            document.body.appendChild(div);
+            return userId;
+          }
+
+          await new Promise(resolve => setTimeout(resolve, interval));
+        }
+
+        console.log("OneSignal User ID alınamadı");
+        return null;
+      }
+
+      // Fonksiyonu çağır
+      waitForUserId();
+    });
+  })
+  </script>
+</head>
+<body>
+  <h1>OneSignal Kullanıcı ID Testi</h1>
+</body>
+</html>
